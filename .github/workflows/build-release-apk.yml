@@ -2,15 +2,43 @@ name: Build release APK
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '0 */6 * * *'   # cada 6 horas
 
 permissions:
   contents: write
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.c.outputs.sha }}
+      short: ${{ steps.c.outputs.short }}
+      skip: ${{ steps.c.outputs.skip }}
+    steps:
+      - id: c
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          SHA=$(git ls-remote https://github.com/AshwinSoni-01/FrostKeys HEAD | cut -f1)
+          SHORT=${SHA:0:7}
+          echo "sha=$SHA" >> $GITHUB_OUTPUT
+          echo "short=$SHORT" >> $GITHUB_OUTPUT
+          if [ "$GITHUB_EVENT_NAME" = "schedule" ] && gh release view "build-$SHORT" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Sin cambios ($SHORT), no se compila"
+            echo "skip=true" >> $GITHUB_OUTPUT
+          fi
+
   build:
+    needs: check
+    if: needs.check.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          repository: AshwinSoni-01/FrostKeys
+          ref: ${{ needs.check.outputs.sha }}
+          fetch-depth: 0
 
       - uses: actions/setup-java@v4
         with:
@@ -42,7 +70,9 @@ jobs:
       - name: Publicar en Releases
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: build-${{ github.run_number }}
-          name: FrostKeys build ${{ github.run_number }}
+          repository: ${{ github.repository }}
+          tag_name: build-${{ needs.check.outputs.short }}
+          name: FrostKeys ${{ needs.check.outputs.short }}
+          body: "Compilado desde AshwinSoni-01/FrostKeys@${{ needs.check.outputs.sha }}"
           files: FrostKeys-release.apk
           prerelease: true
